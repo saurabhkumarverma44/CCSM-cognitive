@@ -34,9 +34,5 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# Experiment outputs
-# Uncomment these if runs/ contains large generated files
-# runs/
-
-
+# Generated experiment/output files
 runs/
