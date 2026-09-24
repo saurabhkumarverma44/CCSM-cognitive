@@ -1,0 +1,8 @@
+﻿# CCSM requirements
+# Install with: pip install -r requirements.txt
+# NOTE: PyTorch+CUDA (2.14.0+cu130) must already be installed — do NOT reinstall.
+
+ultralytics>=8.3.0
+opencv-python>=4.10.0
+numpy>=1.26.0
+pytest>=8.0.0
