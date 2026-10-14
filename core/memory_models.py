@@ -1,4 +1,4 @@
-﻿# core/memory_models.py
+# core/memory_models.py
 from __future__ import annotations
 import time
 from collections import deque
@@ -66,6 +66,20 @@ class TrackedObjectMemory:
     predicted_position: Optional[Tuple[float, float]] = None
     occluder_id: Optional[int] = None
 
+    # --- Phase 5.2 Lifecycle fields ---
+    # Frames the object was missing before its last reappearance (fixes "0 frames" display bug)
+    last_occlusion_duration: int = 0
+    # Cumulative frames spent in VISIBLE state
+    total_visible_frames: int = 0
+    # Cumulative frames spent in OCCLUDED state
+    total_occluded_frames: int = 0
+    # Consecutive detections without a miss (reset on each gap)
+    consecutive_detections: int = 0
+    # True once the object has been confirmed (N consecutive detections)
+    confirmed: bool = False
+    # Frame number when state transitioned to LOST (None if not yet LOST)
+    lost_at_frame: Optional[int] = None
+
     @property
     def age_frames(self) -> int:
         return self.current_frame - self.first_seen_frame
@@ -80,6 +94,25 @@ class TrackedObjectMemory:
     @property
     def is_missing(self) -> bool:
         return self.state in (ObjectState.OCCLUDED, ObjectState.LOST)
+
+    @property
+    def visibility_ratio(self) -> float:
+        """Fraction of active life spent visible (0.0 – 1.0)."""
+        total = self.total_visible_frames + self.total_occluded_frames
+        return self.total_visible_frames / total if total > 0 else 0.0
+
+    @property
+    def stability_score(self) -> float:
+        """
+        0.0 – 1.0 composite reliability metric.
+        Rewards: high detection confidence, high visibility ratio, age > 60 frames.
+        Penalises: unconfirmed status.
+        """
+        conf   = self.last_confidence
+        vis    = self.visibility_ratio
+        age_b  = min(1.0, self.age_frames / 60.0)
+        conf_b = 0.0 if not self.confirmed else 0.05
+        return min(1.0, conf * 0.35 + vis * 0.40 + age_b * 0.20 + conf_b)
 
     @property
     def time_since_last_seen(self) -> float:
@@ -103,6 +136,12 @@ class TrackedObjectMemory:
             "reappearance_count": self.reappearance_count,
             "occluder_id": self.occluder_id,
             "last_seen_frame": self.last_seen_frame,
+            # Phase 5.2 lifecycle
+            "confirmed": self.confirmed,
+            "total_visible_frames": self.total_visible_frames,
+            "total_occluded_frames": self.total_occluded_frames,
+            "visibility_ratio": round(self.visibility_ratio, 3),
+            "stability_score": round(self.stability_score, 3),
         }
 
     def __repr__(self) -> str:
