@@ -30,6 +30,9 @@ from core.context_builder import ContextBuilder
 from core.memory_optimizer import MemoryOptimizer
 from core.visualizer import annotate_frame
 from core.memory_models import ObjectState
+from core.llm_client import (
+    GroqSceneAssistant, LLMConfigurationError, LLMRequestError,
+)
 
 _LOG = logging.getLogger("ccsm.main")
 
@@ -43,11 +46,12 @@ def main() -> None:
 
     show_hud = True
     fi = 0
+    llm_assistant = None  # Initialized lazily when the user first presses G.
 
     print()
     print("=" * 66)
-    print("  CCSM Phase 6 — Spatial-Temporal Memory & Identity Recovery")
-    print("  q=quit  m=HUD  d=debug  c=LLM context  p=memory stats")
+    print("  CCSM Phase 7 — Scene Memory + GroqCloud Reasoning")
+    print("  q=quit  m=HUD  d=debug  c=print context  g=ask Groq LLM  p=memory stats")
     print("=" * 66)
     print()
 
@@ -70,7 +74,7 @@ def main() -> None:
                                                    show_ghost=True),
             )
 
-            cv2.imshow("CCSM Phase 6 - Memory + Re-ID + Occlusion", display)
+            cv2.imshow("CCSM Phase 7 - Memory + Re-ID + Groq LLM", display)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -97,6 +101,27 @@ def main() -> None:
                 print()
                 print(narrative)
                 print()
+            elif key == ord("g"):
+                # Terminal input intentionally occurs only on explicit user request.
+                question = input("\n[CCSM LLM] Ask a question about the current scene (blank cancels): ").strip()
+                if not question:
+                    print("[CCSM LLM] Cancelled.")
+                    continue
+                try:
+                    if llm_assistant is None:
+                        llm_assistant = GroqSceneAssistant()
+                    payload = context_builder.build_llm_payload(memory_snapshot, fi)
+                    answer = llm_assistant.answer(question, payload)
+                    print("\n" + "-" * 66)
+                    print("CCSM GROQCLOUD ANSWER")
+                    print("-" * 66)
+                    print(answer)
+                    print("-" * 66 + "\n")
+                except (LLMConfigurationError, LLMRequestError, ValueError) as exc:
+                    print(f"[CCSM LLM] {exc}")
+                except Exception:
+                    _LOG.exception("Unexpected error while answering a scene question")
+                    print("[CCSM LLM] Unexpected error. Check logs/ccsm.log.")
             elif key == ord("p"):
                 summary = optimizer.summarize_compression(memory_snapshot)
                 purged_count = agent.memory.purge_lost()
