@@ -36,3 +36,11 @@ Thumbs.db
 
 # Generated experiment/output files
 runs/
+
+# CCSM persistent episodic memory
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+
+# Secrets
+.env
