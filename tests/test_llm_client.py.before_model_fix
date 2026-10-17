@@ -1,0 +1,69 @@
+import os
+from types import SimpleNamespace
+import pytest
+
+from core.llm_client import (
+    GroqSceneAssistant, GroqSettings, LLMConfigurationError, LLMRequestError,
+)
+
+
+class FakeCompletions:
+    def __init__(self, content="One person is visible.", error=None):
+        self.content = content
+        self.error = error
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error:
+            raise self.error
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))])
+
+
+def _assistant(fake):
+    client = SimpleNamespace(chat=SimpleNamespace(completions=fake))
+    settings = GroqSettings(api_key="test-key", max_context_chars=10000)
+    return GroqSceneAssistant(settings=settings, client=client), fake
+
+
+def test_requires_api_key(monkeypatch):
+    # Prevent .env from restoring the key during this isolated test.
+    import dotenv
+
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda: None)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    with pytest.raises(LLMConfigurationError):
+        GroqSettings.from_env()
+
+
+def test_answer_sends_context_and_question():
+    assistant, fake = _assistant(FakeCompletions())
+    answer = assistant.answer("How many objects are visible?", {"counts": {"visible": 1}})
+    assert answer == "One person is visible."
+    assert fake.kwargs["model"] == "llama-3.3-70b-versatile"
+    content = fake.kwargs["messages"][1]["content"]
+    assert '"visible":1' in content
+    assert "How many objects are visible?" in content
+
+
+def test_empty_question_rejected():
+    assistant, _ = _assistant(FakeCompletions())
+    with pytest.raises(ValueError):
+        assistant.answer("  ", {})
+
+
+def test_provider_errors_are_sanitized():
+    assistant, _ = _assistant(FakeCompletions(error=RuntimeError("sensitive provider detail")))
+    with pytest.raises(LLMRequestError) as exc:
+        assistant.answer("What is in the scene?", {"frame": 1})
+    assert "sensitive provider detail" not in str(exc.value)
+
+
+def test_context_too_large_rejected():
+    fake = FakeCompletions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=fake))
+    settings = GroqSettings(api_key="test-key", max_context_chars=1000)
+    assistant = GroqSceneAssistant(settings=settings, client=client)
+    with pytest.raises(ValueError, match="too large"):
+        assistant.answer("summarize", {"entities": [{"data": "x" * 1500}]})
