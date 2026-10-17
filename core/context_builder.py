@@ -105,20 +105,15 @@ class ContextBuilder:
 
         return "\n".join(lines)
 
+    
     def build_llm_payload(
         self,
         memory_snapshot: Sequence[TrackedObjectMemory],
         frame_index: int,
     ) -> dict:
-        """
-        Creates a structured dictionary formatted for direct injection
-        into an LLM chat/completion API call.
-        """
-        visible = [m for m in memory_snapshot if m.is_visible]
-        occluded = [m for m in memory_snapshot if m.state == ObjectState.OCCLUDED]
-        lost = [m for m in memory_snapshot if m.state == ObjectState.LOST]
-
+        """Build a consistent, explicitly categorized snapshot for LLM reasoning."""
         entities = []
+
         for m in sorted(memory_snapshot, key=lambda x: x.track_id):
             entities.append({
                 "id": m.track_id,
@@ -126,11 +121,13 @@ class ContextBuilder:
                 "state": m.state.value,
                 "confirmed": m.confirmed,
                 "stability": round(m.stability_score, 3),
-                "position": m.last_position,
+                "position": list(m.last_position) if m.last_position else None,
                 "motion": {
                     "vx": round(m.velocity.vx, 2),
                     "vy": round(m.velocity.vy, 2),
-                    "direction": _direction_str(m.velocity.vx, m.velocity.vy),
+                    "direction": _direction_str(
+                        m.velocity.vx, m.velocity.vy
+                    ),
                 },
                 "age_frames": m.age_frames,
                 "missing_frames": m.missing_frames,
@@ -139,15 +136,49 @@ class ContextBuilder:
                 "occluded_by": m.occluder_id,
             })
 
+        # Calculate counts directly from this exact entity snapshot.
+        visible = [
+            e for e in entities
+            if e["state"] == ObjectState.VISIBLE.value
+        ]
+        occluded = [
+            e for e in entities
+            if e["state"] == ObjectState.OCCLUDED.value
+        ]
+        lost = [
+            e for e in entities
+            if e["state"] == ObjectState.LOST.value
+        ]
+
+        def class_counts(items):
+            counts = {}
+            for entity in items:
+                name = entity["class"]
+                counts[name] = counts.get(name, 0) + 1
+            return counts
+
         return {
             "frame": frame_index,
             "timestamp_seconds": round(frame_index / self.fps, 2),
+            "count_semantics": (
+                "Counts describe this snapshot only. "
+                "Visible, occluded, and lost are separate states. "
+                "Class counts use the entity class field. "
+                "Total is the number of entities in this snapshot, "
+                "not the number ever observed."
+            ),
             "counts": {
                 "visible": len(visible),
                 "occluded": len(occluded),
                 "lost": len(lost),
-                "total": len(memory_snapshot),
+                "total": len(entities),
+                "visible_by_class": class_counts(visible),
+                "occluded_by_class": class_counts(occluded),
+                "lost_by_class": class_counts(lost),
             },
             "entities": entities,
-            "prompt_text": self.build_scene_narrative(memory_snapshot, frame_index),
+	    "prompt_text": self.build_scene_narrative(
+    		memory_snapshot, frame_index
+	    ),	
         }
+
